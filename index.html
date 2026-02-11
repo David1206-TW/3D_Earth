@@ -1,431 +1,155 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>3D 地球儀 - 座標修正版</title>
-    <style>
-        body { margin: 0; overflow: hidden; background-color: #000; }
-        
-        /* 標籤樣式 */
-        .label {
-            position: absolute;
-            color: #fff;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 13px; 
-            border-left: 3px solid #00ffaa;
-            pointer-events: none;
-            transform: translate(-50%, -20px);
-            opacity: 0;
-            transition: opacity 0.3s;
-            white-space: nowrap;
-            text-shadow: 1px 1px 2px black;
-            font-family: sans-serif;
-            backdrop-filter: blur(2px);
-            z-index: 10;
-        }
-        .label.visible { opacity: 1; }
-        .label strong { display: block; font-size: 1.1em; color: #00ffaa; }
-        
-        #loading {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            color: white; font-family: sans-serif;
-            background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 10px;
-            pointer-events: none;
-            z-index: 20;
-        }
-    </style>
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D 真實地球 8K + 夜光</title>
+<style>
+body { margin: 0; overflow: hidden; background: #000; }
+#toggleNight {
+    position: absolute; top: 10px; left: 10px;
+    padding: 8px 12px; background: rgba(0,0,0,0.6);
+    color: #4db8ff; border: 1px solid #4db8ff;
+    border-radius: 4px; cursor: pointer;
+    font-family: sans-serif;
+    z-index: 10;
+}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
-    
-    <div id="labels-container"></div>
-    <div id="loading">載入模型與校正座標...</div>
+<div id="toggleNight">切換城市夜光</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+let scene, camera, renderer, controls;
+let earthMesh, cloudMesh, nightMesh;
+let cityLightVisible = true;
+const clock = new THREE.Clock();
 
-        const CONFIG = { earthRadius: 5 };
+// --- 初始化 ---
+init();
+animate();
 
-        let scene, camera, renderer, controls;
-        let earthGroup, earthMesh, ufoGroup, auroraGroup;
-        const markers = [];
-        const clock = new THREE.Clock();
-        const textureLoader = new THREE.TextureLoader();
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
 
-        // 地標資料 - 這裡的經緯度是真實世界的數據
-        const landmarksData = [
-            { name: "埃及金字塔", lat: 29.9792, lon: 31.1342, type: 'pyramid' },
-            { name: "人面獅身像", lat: 29.9753, lon: 31.1376, type: 'sphinx' },
-            { name: "佩特拉古城", lat: 30.3285, lon: 35.4444, type: 'temple' },
-            { name: "哈里發塔", lat: 25.1972, lon: 55.2744, type: 'needle' },
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 15);
 
-            { name: "羅馬競技場", lat: 41.8902, lon: 12.4922, type: 'colosseum' },
-            { name: "巨石陣", lat: 51.1789, lon: -1.8262, type: 'stonehenge' },
-            { name: "艾菲爾鐵塔", lat: 48.8584, lon: 2.2945, type: 'tower' },
-            { name: "雅典衛城", lat: 37.9715, lon: 23.7257, type: 'temple' }, 
-            { name: "聖索菲亞大教堂", lat: 41.0082, lon: 28.9784, type: 'dome' },
-            { name: "克里姆林宮", lat: 55.7520, lon: 37.6173, type: 'dome' },
+    renderer = new THREE.WebGLRenderer({ antialias:true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
 
-            { name: "萬里長城", lat: 40.4319, lon: 116.5704, type: 'wall' }, 
-            { name: "泰姬瑪哈陵", lat: 27.1751, lon: 78.0421, type: 'taj' },
-            { name: "吳哥窟", lat: 13.4125, lon: 103.8670, type: 'temple' },
-            { name: "富士山", lat: 35.3606, lon: 138.7274, type: 'mountain' },
-            
-            { name: "奇琴伊察", lat: 20.6843, lon: -88.5678, type: 'pyramid_step' },
-            { name: "馬丘比丘", lat: -13.1631, lon: -72.5450, type: 'ruins' },
-            { name: "自由女神像", lat: 40.6892, lon: -74.0445, type: 'statue' },
-            { name: "救世基督像", lat: -22.9519, lon: -43.2105, type: 'cross' },
+    // --- 控制器 ---
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.minDistance = 5;
+    controls.maxDistance = 30;
 
-            { name: "雪梨歌劇院", lat: -33.8568, lon: 151.2153, type: 'sails' },
-            { name: "復活節島石像", lat: -27.1127, lon: -109.3497, type: 'moai' },
-            { name: "亞特蘭提斯", lat: 35.0, lon: -40.0, type: 'atlantis' }
-        ];
+    // --- 燈光 ---
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.6);
+    scene.add(hemiLight);
 
-        init();
-        animate();
-
-        function init() {
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050515);
-
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 0, 16);
-
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.3;
-            renderer.outputColorSpace = THREE.SRGBColorSpace;
-            document.body.appendChild(renderer.domElement);
-
-            earthGroup = new THREE.Group();
-            scene.add(earthGroup);
-
-            createEarth();
-            createAurora();
-            createStars();
-            createLandmarks();
-            createRealisticUFO();
-
-            // --- 燈光 (全亮) ---
-            const ambientLight = new THREE.AmbientLight(0xffffff, 3.0); 
-            scene.add(ambientLight);
-
-            const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
-            sunLight.position.set(50, 20, 30);
-            scene.add(sunLight);
-            
-            const fillLight = new THREE.DirectionalLight(0xccccff, 1.5);
-            fillLight.position.set(-50, 0, -50);
-            scene.add(fillLight);
-
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.minDistance = 6.0;
-            controls.maxDistance = 30;
-            controls.rotateSpeed = 0.6;
-
-            window.addEventListener('resize', onWindowResize);
-            
-            setTimeout(() => {
-                const el = document.getElementById('loading');
-                if(el) el.style.display = 'none';
-            }, 800);
+    // --- HDR 環境貼圖 ---
+    new RGBELoader().load(
+        'https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr',
+        function(texture){
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            scene.environment = texture;
         }
+    );
 
-        function createEarth() {
-            const geometry = new THREE.SphereGeometry(CONFIG.earthRadius, 64, 64);
-            const material = new THREE.MeshStandardMaterial({
-                color: 0xffffff, 
-                map: textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg'),
-                bumpMap: textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_normal_2048.jpg'),
-                bumpScale: 0.1,
-                roughness: 0.5,
-                metalness: 0.1
-            });
-            
-            earthMesh = new THREE.Mesh(geometry, material);
-            
-            // --- 座標修正核心 ---
-            // 強制旋轉 -90 度，讓經度 0 (格林威治) 對齊 Z 軸正向
-            earthMesh.rotation.y = -Math.PI / 2;
-            
-            earthGroup.add(earthMesh);
+    // --- 地球貼圖 8K ---
+    const loader = new THREE.TextureLoader();
+    const earthMap = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_8192.jpg');
+    const earthNormal = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_normal_8192.jpg');
+    const earthSpec = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_8192.jpg');
+    const cityLights = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_lights_8192.png');
 
-            // 雲層
-            const cloudGeo = new THREE.SphereGeometry(CONFIG.earthRadius + 0.05, 64, 64);
-            const cloudMat = new THREE.MeshStandardMaterial({
-                map: textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_clouds_1024.png'),
-                transparent: true,
-                opacity: 0.5,
-                side: THREE.DoubleSide,
-                blending: THREE.AdditiveBlending
-            });
-            const cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
-            cloudMesh.rotation.y = -Math.PI / 2; // 雲層也要跟著轉
-            earthGroup.add(cloudMesh);
-            
-            // 大氣光暈
-            const atmosGeo = new THREE.SphereGeometry(CONFIG.earthRadius + 1.2, 64, 64);
-            const atmosMat = new THREE.ShaderMaterial({
-                vertexShader: `
-                    varying vec3 vNormal;
-                    void main() {
-                        vNormal = normalize(normalMatrix * normal);
-                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                    }
-                `,
-                fragmentShader: `
-                    varying vec3 vNormal;
-                    void main() {
-                        float intensity = pow(0.6 - dot(vNormal, vec3(0, 0, 1.0)), 3.0);
-                        gl_FragColor = vec4(0.2, 0.6, 1.0, 1.0) * intensity;
-                    }
-                `,
-                blending: THREE.AdditiveBlending,
-                side: THREE.BackSide,
-                transparent: true
-            });
-            scene.add(new THREE.Mesh(atmosGeo, atmosMat));
-        }
+    // --- 地球材質 ---
+    const earthMaterial = new THREE.MeshStandardMaterial({
+        map: earthMap,
+        normalMap: earthNormal,
+        metalness: 0.05,
+        roughness: 0.6,
+    });
 
-        function createAurora() {
-            auroraGroup = new THREE.Group();
-            const auroraGeo = new THREE.CylinderGeometry(CONFIG.earthRadius + 0.1, CONFIG.earthRadius + 0.5, 1.5, 64, 8, true);
-            auroraGeo.translate(0, CONFIG.earthRadius * 0.95, 0);
+    earthMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(5, 128, 128),
+        earthMaterial
+    );
+    earthMesh.rotation.y = -Math.PI/2;
+    scene.add(earthMesh);
 
-            const vertexShader = `
-                varying vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `;
-            const fragmentShader = `
-                uniform float time;
-                uniform vec3 color;
-                varying vec2 vUv;
-                float noise(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453); }
-                void main() {
-                    float n = noise(vec2(vUv.x * 20.0 + time * 0.2, vUv.y));
-                    float alpha = smoothstep(0.0, 0.5, vUv.y) * smoothstep(1.0, 0.5, vUv.y);
-                    gl_FragColor = vec4(color, alpha * n * 0.6 + 0.2);
-                }
-            `;
+    // --- 雲層 ---
+    const cloudMaterial = new THREE.MeshStandardMaterial({
+        map: loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_clouds_8192.png'),
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false
+    });
+    cloudMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(5.05, 128, 128),
+        cloudMaterial
+    );
+    cloudMesh.rotation.y = -Math.PI/2;
+    scene.add(cloudMesh);
 
-            const matNorth = new THREE.ShaderMaterial({
-                uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0x00ffaa) } },
-                vertexShader: vertexShader, fragmentShader: fragmentShader,
-                transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false
-            });
-            const matSouth = new THREE.ShaderMaterial({
-                uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0xaa00ff) } },
-                vertexShader: vertexShader, fragmentShader: fragmentShader,
-                transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false
-            });
+    // --- 夜光層 ---
+    const nightMaterial = new THREE.MeshBasicMaterial({
+        map: cityLights,
+        transparent: true,
+        opacity: 1.0
+    });
+    nightMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(5.001, 128, 128),
+        nightMaterial
+    );
+    nightMesh.rotation.y = -Math.PI/2;
+    scene.add(nightMesh);
 
-            const north = new THREE.Mesh(auroraGeo, matNorth);
-            const south = new THREE.Mesh(auroraGeo, matSouth);
-            south.rotation.x = Math.PI;
-            
-            auroraGroup.add(north, south);
-            earthGroup.add(auroraGroup);
-        }
+    // --- 夜光開關 ---
+    document.getElementById('toggleNight').addEventListener('click', ()=>{
+        cityLightVisible = !cityLightVisible;
+        nightMesh.visible = cityLightVisible;
+    });
 
-        function createLandmarks() {
-            landmarksData.forEach(data => {
-                let mesh = null;
-                const matStone = new THREE.MeshLambertMaterial({ color: 0xd2b48c });
-                const matGrey = new THREE.MeshLambertMaterial({ color: 0xaaaaaa });
-                const matWhite = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    window.addEventListener('resize', ()=>{
+        camera.aspect = window.innerWidth/window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+}
 
-                switch(data.type) {
-                    case 'pyramid': mesh = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.15, 4), matStone); break;
-                    case 'pyramid_step': 
-                        mesh = new THREE.Group();
-                        for(let i=0; i<3; i++) {
-                            const b = new THREE.Mesh(new THREE.BoxGeometry(0.15-i*0.04, 0.04, 0.15-i*0.04), matGrey);
-                            b.position.y = i*0.04;
-                            mesh.add(b);
-                        }
-                        break;
-                    case 'sphinx': mesh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.06), matStone); break;
-                    case 'wall': 
-                        mesh = new THREE.Group();
-                        for(let i=0; i<8; i++) {
-                            const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.1), matGrey);
-                            p.position.set(i*0.03, 0, 0); 
-                            mesh.add(p);
-                        }
-                        break;
-                    case 'colosseum':
-                        const t = new THREE.TorusGeometry(0.08, 0.03, 4, 12);
-                        t.rotateX(Math.PI/2);
-                        mesh = new THREE.Mesh(t, matStone);
-                        break;
-                    case 'tower': 
-                        mesh = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.3, 4), matStone);
-                        mesh.position.y = 0.1;
-                        break;
-                    case 'stonehenge':
-                        mesh = new THREE.Group();
-                        for(let i=0; i<5; i++) {
-                            const st = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.06, 0.02), matGrey);
-                            st.position.set(Math.cos(i)*0.06, 0.03, Math.sin(i)*0.06);
-                            mesh.add(st);
-                        }
-                        break;
-                    case 'needle': 
-                        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.02, 0.4, 8), matWhite);
-                        mesh.position.y = 0.2;
-                        break;
-                    case 'mountain': mesh = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.15, 16), matWhite); break;
-                    case 'taj': 
-                    case 'dome': mesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8, 0, Math.PI*2, 0, Math.PI/2), matWhite); break;
-                    case 'temple': mesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.06), matStone); break;
-                    case 'sails': 
-                        mesh = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.15, 4), matWhite);
-                        mesh.rotation.z = -0.3;
-                        break;
-                    case 'statue': 
-                    case 'moai': 
-                        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.15, 6), matGrey);
-                        mesh.position.y = 0.07;
-                        break;
-                    case 'cross': 
-                        mesh = new THREE.Group();
-                        const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.15, 0.03), matWhite);
-                        const a = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.03), matWhite);
-                        a.position.y = 0.04;
-                        mesh.add(b, a);
-                        break;
-                    case 'atlantis': 
-                        mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.15), new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true }));
-                        break;
-                    default: mesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), matGrey);
-                }
+// --- 動畫 ---
+function animate() {
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
 
-                if (mesh) {
-                    const pos = latLongToVector3(data.lat, data.lon, CONFIG.earthRadius);
-                    mesh.position.copy(pos);
-                    mesh.lookAt(0, 0, 0); 
-                    
-                    const normal = pos.clone().normalize();
-                    const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-                    mesh.quaternion.copy(quaternion);
-                    
-                    if(data.type === 'wall') {
-                        mesh.rotateY(Math.PI/2);
-                    }
+    // 地球自轉
+    earthMesh.rotation.y += 0.0005;
+    cloudMesh.rotation.y += 0.0008;
+    nightMesh.rotation.y += 0.0005;
 
-                    earthGroup.add(mesh);
-
-                    const div = document.createElement('div');
-                    div.className = 'label';
-                    div.innerHTML = `<strong>${data.name}</strong>`;
-                    document.getElementById('labels-container').appendChild(div);
-
-                    markers.push({ mesh: mesh, dom: div });
-                }
-            });
-        }
-
-        function createRealisticUFO() {
-            ufoGroup = new THREE.Group();
-            const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.15, 0.04, 16), new THREE.MeshLambertMaterial({ color: 0xcccccc }));
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.01, 8, 16), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
-            ring.rotation.x = Math.PI/2;
-            ufoGroup.add(hull, ring);
-            scene.add(ufoGroup);
-        }
-
-        function createStars() {
-            const starGeo = new THREE.BufferGeometry();
-            const count = 2000;
-            const pos = new Float32Array(count * 3);
-            for(let i=0; i<count*3; i++) { pos[i] = (Math.random()-0.5) * 600; }
-            starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-            const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.7, transparent: true });
-            scene.add(new THREE.Points(starGeo, starMat));
-        }
-
-        // --- 經緯度數學公式 (配合地球貼圖的 -90度 旋轉) ---
-        function latLongToVector3(lat, lon, radius) {
-            const phi = (90 - lat) * (Math.PI / 180);
-            const theta = (lon) * (Math.PI / 180); 
-
-            // 這裡的公式經過調整，以配合 earthMesh.rotation.y = -Math.PI/2
-            // 讓經度 0 (Greenwich) 對齊 Z 軸正向
-            const x = radius * Math.sin(phi) * Math.sin(theta);
-            const y = radius * Math.cos(phi);
-            const z = radius * Math.sin(phi) * Math.cos(theta);
-
-            return new THREE.Vector3(x, y, z);
-        }
-
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        function animate() {
-            requestAnimationFrame(animate);
-            const time = clock.getElapsedTime();
-
-            earthGroup.rotation.y += 0.0005;
-
-            if (auroraGroup) {
-                auroraGroup.children.forEach(mesh => {
-                    mesh.material.uniforms.time.value = time;
-                });
-            }
-
-            if (ufoGroup) {
-                const r = CONFIG.earthRadius + 1.5;
-                ufoGroup.position.set(Math.sin(time*0.6)*r, Math.cos(time*0.4)*3, Math.cos(time*0.6)*r);
-                ufoGroup.lookAt(0,0,0);
-            }
-
-            markers.forEach(marker => {
-                const worldPos = new THREE.Vector3();
-                marker.mesh.getWorldPosition(worldPos);
-                
-                const dist = worldPos.distanceTo(camera.position);
-                if (dist < camera.position.length() + 0.5) {
-                    const screenPos = worldPos.clone().project(camera);
-                    const x = (screenPos.x * .5 + .5) * window.innerWidth;
-                    const y = (screenPos.y * -.5 + .5) * window.innerHeight;
-                    
-                    if(x > 0 && x < window.innerWidth && y > 0 && y < window.innerHeight) {
-                        marker.dom.style.left = `${x}px`;
-                        marker.dom.style.top = `${y}px`;
-                        marker.dom.classList.add('visible');
-                    } else {
-                        marker.dom.classList.remove('visible');
-                    }
-                } else {
-                    marker.dom.classList.remove('visible');
-                }
-            });
-
-            controls.update();
-            renderer.render(scene, camera);
-        }
-    </script>
+    controls.update();
+    renderer.render(scene, camera);
+}
+</script>
 </body>
 </html>
