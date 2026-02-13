@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>3D 地球儀 - 震撼音效版</title>
+    <title>3D 地球儀 - 終極戰略版</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000000; font-family: 'Segoe UI', sans-serif; }
         
@@ -27,11 +27,9 @@
         }
         .label.visible { opacity: 1; }
         .label strong { display: block; font-size: 1.1em; color: #4db8ff; margin-bottom: 2px; font-weight: 600; }
-        .label::after {
-            content: ''; position: absolute; bottom: -15px; left: 50%;
-            width: 1px; height: 15px; background: linear-gradient(to bottom, #4db8ff, transparent);
-        }
-
+        .label.iss { border-top: 2px solid #00ff00; border-bottom: none; background: rgba(0, 20, 0, 0.8); }
+        .label.iss strong { color: #00ff00; }
+        
         #loading {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
@@ -41,7 +39,7 @@
             text-transform: uppercase; font-size: 12px; text-shadow: 0 0 5px #4db8ff;
         }
 
-        /* --- 極簡 UI 容器 --- */
+        /* --- UI 容器 --- */
         #ui-container {
             position: absolute;
             bottom: 40px;
@@ -50,7 +48,6 @@
             display: flex;
             gap: 20px;
             z-index: 30;
-            width: max-content;
         }
 
         .control-btn {
@@ -70,18 +67,17 @@
         }
 
         #peace-btn.active, #peace-btn:hover {
-            border-color: #00ffaa;
-            color: #00ffaa;
+            border-color: #00ffaa; color: #00ffaa;
             box-shadow: 0 0 15px rgba(0, 255, 170, 0.4);
             background: rgba(0, 40, 20, 0.8);
         }
 
         #fire-btn.active, #fire-btn:hover {
-            border-color: #ff3333;
-            color: #ff3333;
+            border-color: #ff3333; color: #ff3333;
             box-shadow: 0 0 20px rgba(255, 51, 51, 0.6);
             background: rgba(60, 0, 0, 0.8);
         }
+
     </style>
     <script type="importmap">
         {
@@ -95,7 +91,7 @@
 <body>
     
     <div id="labels-container"></div>
-    <div id="loading">SYSTEM READY... CLICK BUTTONS TO ACTIVATE AUDIO</div>
+    <div id="loading">SYSTEM READY...</div>
     
     <div id="ui-container">
         <button id="peace-btn" class="control-btn active">PEACE</button>
@@ -110,7 +106,7 @@
         const CONFIG = { earthRadius: 5 };
 
         let scene, camera, renderer, controls;
-        let earthGroup, earthMesh, cloudMesh, ufoGroup, auroraGroup;
+        let earthGroup, earthMesh, cloudMesh, ufoGroup, auroraGroup, issGroup;
         const markers = [];
         const activeMissiles = [];
         const activeExplosions = [];
@@ -120,87 +116,68 @@
         const textureLoader = new THREE.TextureLoader();
         let isWarActive = false;
         let warInterval = null;
+        let issMarker = null;
 
-        // --- 音效系統 (Web Audio API) ---
+        // --- 音效系統 ---
         let audioCtx;
-        
         function initAudio() {
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
         }
-
         function playExplosionSound(isSuper) {
             if (!audioCtx) return;
-
             const t = audioCtx.currentTime;
-            
-            // 1. 噪音源 (白噪音)
-            const bufferSize = audioCtx.sampleRate * 2.0; // 2秒
+            const bufferSize = audioCtx.sampleRate * 2.0;
             const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
             const data = buffer.getChannelData(0);
-            for (let i = 0; i < bufferSize; i++) {
-                data[i] = Math.random() * 2 - 1;
-            }
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
             const noise = audioCtx.createBufferSource();
             noise.buffer = buffer;
-
-            // 2. 濾波器 (模擬爆炸的低頻)
             const filter = audioCtx.createBiquadFilter();
             filter.type = 'lowpass';
             filter.frequency.value = 1000;
-            filter.frequency.exponentialRampToValueAtTime(10, t + (isSuper ? 2.5 : 1.0)); // 頻率隨時間下降
-
-            // 3. 音量控制 (Envelope)
+            filter.frequency.exponentialRampToValueAtTime(10, t + (isSuper ? 2.5 : 1.0));
             const gain = audioCtx.createGain();
-            const volume = isSuper ? 0.8 : 0.1; // 超級核彈大聲很多
+            const volume = isSuper ? 0.8 : 0.1;
             gain.gain.setValueAtTime(0, t);
-            gain.gain.linearRampToValueAtTime(volume, t + 0.05); // 快速起音
-            gain.gain.exponentialRampToValueAtTime(0.01, t + (isSuper ? 2.0 : 0.8)); // 衰減
-
-            // 連接：噪音 -> 濾波 -> 音量 -> 輸出
-            noise.connect(filter);
-            filter.connect(gain);
-            gain.connect(audioCtx.destination);
-
-            noise.start(t);
-            noise.stop(t + (isSuper ? 3.0 : 1.0));
+            gain.gain.linearRampToValueAtTime(volume, t + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.01, t + (isSuper ? 2.0 : 0.8));
+            noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+            noise.start(t); noise.stop(t + (isSuper ? 3.0 : 1.0));
         }
 
-        // --- 地標資料 ---
-        const landmarksData = [
-            { name: "台灣 (台北101)", lat: 25.0330, lon: 121.5654, type: 'needle' },
-            { name: "北京紫禁城", lat: 39.9163, lon: 116.3971, type: 'temple', region: 'ChinaTarget' },
-            { name: "萬里長城", lat: 40.4319, lon: 116.5704, type: 'wall', region: 'ChinaTarget' }, 
-            { name: "上海東方明珠", lat: 31.2397, lon: 121.4998, type: 'needle', region: 'ChinaTarget' },
-            { name: "廣州塔", lat: 23.1067, lon: 113.3246, type: 'tower', region: 'ChinaTarget' },
-            { name: "深圳平安中心", lat: 22.5333, lon: 114.0544, type: 'needle', region: 'ChinaTarget' },
-            { name: "成都", lat: 30.5728, lon: 104.0668, type: 'dome', region: 'ChinaTarget' },
-
-            { name: "日本富士山", lat: 35.3606, lon: 138.7274, type: 'mountain' },
-            { name: "東京鐵塔", lat: 35.6586, lon: 139.7454, type: 'tower' },
-            { name: "印度泰姬瑪哈陵", lat: 27.1751, lon: 78.0421, type: 'taj' },
-            { name: "柬埔寨吳哥窟", lat: 13.4125, lon: 103.8670, type: 'temple' },
-            { name: "杜拜哈里發塔", lat: 25.1972, lon: 55.2744, type: 'needle' },
-            { name: "新加坡金沙酒店", lat: 1.2834, lon: 103.8607, type: 'sails' },
-
-            { name: "羅馬競技場", lat: 41.8902, lon: 12.4922, type: 'colosseum' },
-            { name: "英國巨石陣", lat: 51.1789, lon: -1.8262, type: 'stonehenge' },
-            { name: "巴黎艾菲爾鐵塔", lat: 48.8584, lon: 2.2945, type: 'tower' },
-            { name: "雅典衛城", lat: 37.9715, lon: 23.7257, type: 'temple' }, 
-            { name: "莫斯科克里姆林宮", lat: 55.7520, lon: 37.6173, type: 'dome' },
-
-            { name: "埃及金字塔", lat: 29.9792, lon: 31.1342, type: 'pyramid' },
-            { name: "吉力馬札羅山", lat: -3.0674, lon: 37.3556, type: 'mountain' },
-            { name: "紐約自由女神像", lat: 40.6892, lon: -74.0445, type: 'statue' },
-            { name: "舊金山金門大橋", lat: 37.8199, lon: -122.4783, type: 'wall' },
-            { name: "秘魯馬丘比丘", lat: -13.1631, lon: -72.5450, type: 'ruins' },
-            { name: "巴西救世基督像", lat: -22.9519, lon: -43.2105, type: 'cross' },
-            { name: "雪梨歌劇院", lat: -33.8568, lon: 151.2153, type: 'sails' },
-            { name: "亞特蘭提斯", lat: 35.0, lon: -40.0, type: 'atlantis' }
+        // --- 戰略目標資料庫 ---
+        const warTargets = [
+            // 亞洲
+            { name: "台北", lat: 25.0330, lon: 121.5654, region: 'Asia_TW' },
+            { name: "北京", lat: 39.9042, lon: 116.4074, region: 'Asia_CN' },
+            { name: "上海", lat: 31.2304, lon: 121.4737, region: 'Asia_CN' },
+            { name: "東京", lat: 35.6762, lon: 139.6503, region: 'Asia' },
+            { name: "首爾", lat: 37.5665, lon: 126.9780, region: 'Asia' },
+            { name: "新德里", lat: 28.6139, lon: 77.2090, region: 'Asia' },
+            { name: "成都", lat: 30.5728, lon: 104.0668, region: 'Asia_CN' },
+            { name: "廣州", lat: 23.1291, lon: 113.2644, region: 'Asia_CN' },
+            { name: "雅加達", lat: -6.2088, lon: 106.8456, region: 'Asia' },
+            // 歐洲
+            { name: "倫敦", lat: 51.5074, lon: -0.1278, region: 'Europe' },
+            { name: "巴黎", lat: 48.8566, lon: 2.3522, region: 'Europe' },
+            { name: "柏林", lat: 52.5200, lon: 13.4050, region: 'Europe' },
+            { name: "羅馬", lat: 41.9028, lon: 12.4964, region: 'Europe' },
+            { name: "莫斯科", lat: 55.7558, lon: 37.6173, region: 'Europe' },
+            { name: "伊斯坦堡", lat: 41.0082, lon: 28.9784, region: 'Europe' },
+            // 美洲
+            { name: "紐約", lat: 40.7128, lon: -74.0060, region: 'NA' },
+            { name: "華盛頓特區", lat: 38.9072, lon: -77.0369, region: 'NA' },
+            { name: "洛杉磯", lat: 34.0522, lon: -118.2437, region: 'NA' },
+            { name: "巴西利亞", lat: -15.8267, lon: -47.9218, region: 'SA' },
+            { name: "聖保羅", lat: -23.5505, lon: -46.6333, region: 'SA' },
+            // 非洲
+            { name: "開羅", lat: 30.0444, lon: 31.2357, region: 'Africa' },
+            { name: "約翰尼斯堡", lat: -26.2041, lon: 28.0473, region: 'Africa' },
+            { name: "拉哥斯", lat: 6.5244, lon: 3.3792, region: 'Africa' },
+            // 大洋洲
+            { name: "雪梨", lat: -33.8688, lon: 151.2093, region: 'Oceania' },
+            { name: "奧克蘭", lat: -36.8485, lon: 174.7633, region: 'Oceania' }
         ];
 
         init();
@@ -227,16 +204,16 @@
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.6);
             scene.add(hemiLight);
 
-            new RGBELoader()
-                .load('https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr', function(texture) {
-                    texture.mapping = THREE.EquirectangularReflectionMapping;
-                    scene.environment = texture;
-                });
+            new RGBELoader().load('https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr', function(texture) {
+                texture.mapping = THREE.EquirectangularReflectionMapping;
+                scene.environment = texture;
+            });
 
             createEarth();
             createAurora();
             createStars();
-            createLandmarks();
+            createLandmarks(); 
+            createISS(); 
             createRealisticUFO();
 
             controls = new OrbitControls(camera, renderer.domElement);
@@ -248,12 +225,11 @@
 
             window.addEventListener('resize', onWindowResize);
             
-            // --- UI 與 音效啟動 ---
             const peaceBtn = document.getElementById('peace-btn');
             const fireBtn = document.getElementById('fire-btn');
 
             peaceBtn.addEventListener('click', () => {
-                initAudio(); // 啟動音效引擎
+                initAudio();
                 isWarActive = false;
                 if(warInterval) clearInterval(warInterval);
                 
@@ -262,14 +238,12 @@
             });
 
             fireBtn.addEventListener('click', () => {
-                initAudio(); // 啟動音效引擎
+                initAudio();
                 if (isWarActive) return;
                 isWarActive = true;
-                
                 fireBtn.classList.add('active');
                 peaceBtn.classList.remove('active');
                 
-                // 自動轉向亞洲
                 const targetPos = latLongToVector3(25, 120, 16);
                 camera.position.lerp(targetPos, 0.8);
                 
@@ -283,104 +257,132 @@
             }, 1000);
         }
 
+        function createISS() {
+            issGroup = new THREE.Group();
+            const coreGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8);
+            coreGeo.rotateZ(Math.PI / 2);
+            const coreMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.4, metalness: 0.8 });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+            issGroup.add(core);
+            const panelGeo = new THREE.BoxGeometry(0.1, 0.01, 0.6);
+            const panelMat = new THREE.MeshStandardMaterial({ color: 0x3344cc, roughness: 0.2, metalness: 0.5 });
+            const panelLeft = new THREE.Mesh(panelGeo, panelMat);
+            panelLeft.position.x = -0.3;
+            const panelRight = new THREE.Mesh(panelGeo, panelMat);
+            panelRight.position.x = 0.3;
+            issGroup.add(panelLeft); issGroup.add(panelRight);
+            earthGroup.add(issGroup);
+            const div = document.createElement('div');
+            div.className = 'label iss';
+            div.innerHTML = `<strong>國際太空站</strong>`;
+            document.getElementById('labels-container').appendChild(div);
+            issMarker = { mesh: issGroup, dom: div, orbitAngle: 0 };
+        }
+
+        function createRealisticUFO() {
+            ufoGroup = new THREE.Group();
+            const scale = 4.0; 
+            const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.05*scale, 0.15*scale, 0.04*scale, 32), 
+                new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 1.0, roughness: 0.2 }));
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15*scale, 0.01*scale, 8, 32), 
+                new THREE.MeshBasicMaterial({ color: 0x00ff00 })); 
+            ring.rotation.x = Math.PI/2;
+            const dome = new THREE.Mesh(new THREE.SphereGeometry(0.06*scale, 16, 16, 0, Math.PI*2, 0, Math.PI/2),
+                new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 }));
+            dome.position.y = 0.02*scale;
+            ufoGroup.add(hull, ring, dome);
+            scene.add(ufoGroup);
+        }
+
         function startNuclearWar() {
             if(!isWarActive) return;
             if(warInterval) clearInterval(warInterval); 
-            
+            fireRandomMissiles(5); 
             warInterval = setInterval(() => {
                 if(!isWarActive) {
                     clearInterval(warInterval);
                     return;
                 }
-                
-                const attackerIdx = Math.floor(Math.random() * landmarksData.length);
-                let victimIdx = Math.floor(Math.random() * landmarksData.length);
-                while(attackerIdx === victimIdx) {
-                    victimIdx = Math.floor(Math.random() * landmarksData.length);
-                }
-                launchMissile(landmarksData[attackerIdx], landmarksData[victimIdx], false);
-
-                const taiwan = landmarksData.find(d => d.name.includes("台灣"));
-                const chinaTargets = landmarksData.filter(d => d.region === 'ChinaTarget');
-                
+                fireRandomMissiles(Math.floor(Math.random() * 3) + 2);
+                const taiwan = warTargets.find(d => d.region === 'Asia_TW');
+                const chinaTargets = warTargets.filter(d => d.region === 'Asia_CN');
                 if (taiwan && chinaTargets.length > 0) {
-                    const randomChinaTarget = chinaTargets[Math.floor(Math.random() * chinaTargets.length)];
-                    launchMissile(taiwan, randomChinaTarget, true); 
+                    const target1 = chinaTargets[Math.floor(Math.random() * chinaTargets.length)];
+                    launchMissile(taiwan, target1, true); 
                 }
+            }, 800); 
+        }
 
-            }, 1200); 
+        function fireRandomMissiles(count) {
+            for(let i=0; i<count; i++) {
+                const attackerIdx = Math.floor(Math.random() * warTargets.length);
+                let victimIdx = Math.floor(Math.random() * warTargets.length);
+                while(attackerIdx === victimIdx) {
+                    victimIdx = Math.floor(Math.random() * warTargets.length);
+                }
+                launchMissile(warTargets[attackerIdx], warTargets[victimIdx], false);
+            }
+        }
+
+        function triggerRetaliation(victimLoc) {
+            if (!isWarActive) return;
+            setTimeout(() => {
+                if (!isWarActive) return;
+                let enemyIdx = Math.floor(Math.random() * warTargets.length);
+                while (warTargets[enemyIdx].name === victimLoc.name) {
+                    enemyIdx = Math.floor(Math.random() * warTargets.length);
+                }
+                launchMissile(victimLoc, warTargets[enemyIdx], false);
+            }, 1000 + Math.random() * 1500);
         }
 
         function launchMissile(startLocation, endLocation, isSuper = false) {
             const startPos = latLongToVector3(startLocation.lat, startLocation.lon, CONFIG.earthRadius);
             const endPos = latLongToVector3(endLocation.lat, endLocation.lon, CONFIG.earthRadius);
-
             const heightBoost = isSuper ? 4.5 : 2.0 + Math.random() * 1.5;
             const midPoint = startPos.clone().add(endPos).normalize().multiplyScalar(CONFIG.earthRadius + heightBoost);
-            
             const curve = new THREE.QuadraticBezierCurve3(startPos, midPoint, endPos);
             const points = curve.getPoints(50);
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
-            
             const material = new THREE.LineBasicMaterial({ 
                 color: isSuper ? 0xff3300 : 0xffaa00, 
-                transparent: true, 
-                opacity: isSuper ? 0.9 : 0.4,
-                linewidth: isSuper ? 6 : 2
+                transparent: true, opacity: isSuper ? 0.9 : 0.4, linewidth: isSuper ? 6 : 2
             });
             const trajectory = new THREE.Line(geometry, material);
             earthGroup.add(trajectory);
-
             const size = isSuper ? 0.15 : 0.04;
             const missileGeo = new THREE.SphereGeometry(size, 8, 8);
             const missileMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
             const missile = new THREE.Mesh(missileGeo, missileMat);
-            
             if(isSuper) {
                 const glowMat = new THREE.MeshBasicMaterial({color: 0xff0000, transparent:true, opacity:0.6});
                 const glow = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), glowMat);
                 missile.add(glow);
             }
-
             earthGroup.add(missile);
-
             activeMissiles.push({
-                mesh: missile,
-                trail: trajectory,
-                curve: curve,
-                progress: 0,
+                mesh: missile, trail: trajectory, curve: curve, progress: 0,
                 speed: isSuper ? 0.002 : 0.003 + Math.random() * 0.002, 
-                targetPos: endPos,
-                isSuper: isSuper
+                targetPos: endPos, isSuper: isSuper, victimLocation: endLocation
             });
         }
 
-        function createExplosion(position, isSuper = false) {
+        function createExplosion(position, isSuper = false, victimLocation) {
             const multiplier = isSuper ? 8 : 1; 
-
-            // 播放音效
             playExplosionSound(isSuper);
-
             const ringGeo = new THREE.RingGeometry(0.05 * multiplier, 0.1 * multiplier, 32);
             const ringMat = new THREE.MeshBasicMaterial({ 
-                color: isSuper ? 0xff2200 : 0xffaa00, 
-                transparent: true, 
-                opacity: 0.8, 
-                side: THREE.DoubleSide 
+                color: isSuper ? 0xff2200 : 0xffaa00, transparent: true, opacity: 0.8, side: THREE.DoubleSide 
             });
             const shockwave = new THREE.Mesh(ringGeo, ringMat);
             shockwave.position.copy(position);
             shockwave.lookAt(0,0,0);
             earthGroup.add(shockwave);
-
             activeExplosions.push({
-                shockwave: shockwave,
-                age: 0,
-                maxAge: isSuper ? 200 : 100, 
-                multiplier: multiplier
+                shockwave: shockwave, age: 0, maxAge: isSuper ? 200 : 100, multiplier: multiplier
             });
-
             setTimeout(() => createMushroomCloud(position, isSuper), 50);
+            if (victimLocation) triggerRetaliation(victimLocation);
         }
 
         function createMushroomCloud(position, isSuper = false) {
@@ -388,35 +390,23 @@
             group.position.copy(position);
             const up = position.clone().normalize();
             group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
-
             const material = new THREE.MeshStandardMaterial({
                 color: isSuper ? 0x222222 : 0x444444,
                 emissive: isSuper ? 0xdd0000 : 0xcc2200,
                 emissiveIntensity: isSuper ? 1.0 : 0.5,
-                roughness: 1,
-                flatShading: true
+                roughness: 1, flatShading: true
             });
-
             const stemGeo = new THREE.CylinderGeometry(0.02, 0.01, 0.3, 8);
             stemGeo.translate(0, 0.15, 0);
             const stem = new THREE.Mesh(stemGeo, material);
-            
             const capGeo = new THREE.DodecahedronGeometry(0.15, 1);
             capGeo.translate(0, 0.3, 0);
             const cap = new THREE.Mesh(capGeo, material);
-
-            group.add(stem);
-            group.add(cap);
+            group.add(stem); group.add(cap);
             group.scale.set(0.1, 0.1, 0.1); 
-
             earthGroup.add(group);
-
             activeMushrooms.push({
-                group: group,
-                material: material,
-                age: 0,
-                maxAge: isSuper ? 1500 : 800, 
-                isSuper: isSuper
+                group: group, material: material, age: 0, maxAge: isSuper ? 1500 : 800, isSuper: isSuper
             });
         }
 
@@ -426,13 +416,11 @@
                 map: textureLoader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg'),
                 normalMap: textureLoader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg'),
                 normalScale: new THREE.Vector2(0.8, 0.8),
-                roughness: 0.6,
-                metalness: 0.05
+                roughness: 0.6, metalness: 0.05
             });
             earthMesh = new THREE.Mesh(geometry, material);
             earthMesh.rotation.y = -Math.PI / 2;
             earthGroup.add(earthMesh);
-
             const cloudGeo = new THREE.SphereGeometry(CONFIG.earthRadius + 0.06, 128, 128);
             const cloudMat = new THREE.MeshStandardMaterial({
                 map: textureLoader.load('https://threejs.org/examples/textures/planets/earth_clouds_1024.png'),
@@ -441,7 +429,6 @@
             cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
             cloudMesh.rotation.y = -Math.PI / 2; 
             earthGroup.add(cloudMesh);
-            
             const atmosGeo = new THREE.SphereGeometry(CONFIG.earthRadius + 1.25, 64, 64);
             const atmosMat = new THREE.ShaderMaterial({
                 uniforms: {
@@ -468,55 +455,12 @@
         }
 
         function createLandmarks() {
-            landmarksData.forEach(data => {
+            warTargets.forEach(data => {
                 let mesh = null;
-                const matStone = new THREE.MeshStandardMaterial({ color: 0xeeddaa, roughness: 0.6 });
-                const matGrey = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.4 });
-                const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
-
-                switch(data.type) {
-                    case 'pyramid': mesh = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.15, 4), matStone); break;
-                    case 'pyramid_step': 
-                        mesh = new THREE.Group();
-                        for(let i=0; i<3; i++) {
-                            const b = new THREE.Mesh(new THREE.BoxGeometry(0.12-i*0.03, 0.03, 0.12-i*0.03), matGrey);
-                            b.position.y = i*0.03; mesh.add(b);
-                        } break;
-                    case 'wall': 
-                        mesh = new THREE.Group();
-                        for(let i=0; i<6; i++) {
-                            const p = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.08), matGrey);
-                            p.position.set(i*0.03, 0, 0); mesh.add(p);
-                        } break;
-                    case 'colosseum':
-                        const t = new THREE.TorusGeometry(0.06, 0.02, 4, 12); t.rotateX(Math.PI/2);
-                        mesh = new THREE.Mesh(t, matStone); break;
-                    case 'stonehenge':
-                        mesh = new THREE.Group();
-                        for(let i=0; i<5; i++) {
-                            const st = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.04, 0.015), matGrey);
-                            st.position.set(Math.cos(i)*0.04, 0.02, Math.sin(i)*0.04); mesh.add(st);
-                        } break;
-                    case 'needle': mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.02, 0.3, 8), matWhite); mesh.position.y = 0.15; break;
-                    case 'tower': mesh = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.2, 4), matStone); mesh.position.y = 0.1; break;
-                    case 'statue': case 'moai': mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.15, 6), matGrey); mesh.position.y = 0.07; break;
-                    case 'dome': 
-                        mesh = new THREE.Group();
-                        mesh.add(new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8, 0, Math.PI*2, 0, Math.PI/2), matWhite));
-                        mesh.position.y = 0.03; break;
-                    case 'mountain': mesh = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.1, 16), matWhite); break;
-                    case 'temple': mesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.05), matStone); break;
-                    case 'sails': mesh = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.12, 4), matWhite); mesh.rotation.z = -0.3; break;
-                    case 'cross': 
-                        mesh = new THREE.Group();
-                        mesh.add(new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.1, 0.02), matWhite));
-                        const a = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.02), matWhite); a.position.y = 0.02; mesh.add(a);
-                        mesh.position.y = 0.05; break;
-                    case 'atlantis': 
-                        mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.15), new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true })); break;
-                    default: mesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.04), matGrey);
-                }
-
+                const matStone = new THREE.MeshStandardMaterial({ color: 0xeeddaa });
+                const matGrey = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+                if (data.type === 'needle') mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.02, 0.3, 8), matStone);
+                else mesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.04), matGrey);
                 if (mesh) {
                     const pos = latLongToVector3(data.lat, data.lon, CONFIG.earthRadius);
                     mesh.position.copy(pos);
@@ -524,9 +468,11 @@
                     const normal = pos.clone().normalize();
                     const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
                     mesh.quaternion.copy(quaternion);
-                    if(data.type === 'wall') mesh.rotateY(Math.PI/2);
+                    mesh.rotateX(Math.PI / 2);
+                    if (data.type === 'needle') {
+                        mesh.rotateX(-Math.PI / 2); mesh.position.y += 0.15;
+                    }
                     earthGroup.add(mesh);
-                    
                     const div = document.createElement('div');
                     div.className = 'label';
                     div.innerHTML = `<strong>${data.name}</strong>`;
@@ -534,15 +480,6 @@
                     markers.push({ mesh: mesh, dom: div });
                 }
             });
-        }
-
-        function createRealisticUFO() {
-            ufoGroup = new THREE.Group();
-            const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.15, 0.04, 32), new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 }));
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.01, 8, 32), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
-            ring.rotation.x = Math.PI/2;
-            ufoGroup.add(hull, ring);
-            scene.add(ufoGroup);
         }
 
         function createAurora() {
@@ -571,7 +508,14 @@
             const starGeo = new THREE.BufferGeometry();
             const count = 3500;
             const pos = new Float32Array(count * 3);
-            for(let i=0; i<count*3; i++) pos[i] = (Math.random()-0.5) * 800;
+            for(let i=0; i<count; i++) {
+                let r = 400 + Math.random() * 400;
+                let theta = Math.random() * Math.PI * 2;
+                let phi = Math.acos(2 * Math.random() - 1);
+                pos[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                pos[i*3+2] = r * Math.cos(phi);
+            }
             starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
             const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.8, transparent: true, opacity: 0.8 });
             scene.add(new THREE.Points(starGeo, starMat));
@@ -601,16 +545,42 @@
             if (auroraGroup) auroraGroup.children.forEach(mesh => mesh.material.uniforms.time.value = time);
 
             if (ufoGroup) {
-                const r = CONFIG.earthRadius + 1.2;
-                ufoGroup.position.set(Math.sin(time*0.8)*r, Math.cos(time*0.5)*2, Math.cos(time*0.8)*r);
+                const r = CONFIG.earthRadius + 2.5; 
+                ufoGroup.position.set(Math.sin(time*0.5)*r, Math.cos(time*0.3)*2, Math.cos(time*0.5)*r);
                 ufoGroup.lookAt(0,0,0);
+            }
+
+            if (issMarker) {
+                issMarker.orbitAngle += 0.001; 
+                const r = CONFIG.earthRadius + 1.0;
+                const x = r * Math.cos(issMarker.orbitAngle) * 0.8;
+                const y = r * Math.sin(issMarker.orbitAngle) * 0.5; 
+                const z = r * Math.sin(issMarker.orbitAngle);
+                issMarker.mesh.position.set(x, y, z);
+                issMarker.mesh.lookAt(0,0,0); 
+                issMarker.mesh.rotateX(Math.PI/2); 
+
+                const worldPos = new THREE.Vector3();
+                issMarker.mesh.getWorldPosition(worldPos);
+                const screenPos = worldPos.clone().project(camera);
+                const dist = worldPos.distanceTo(camera.position);
+                const centerDist = camera.position.length();
+                if (dist < centerDist) {
+                    const x2 = (screenPos.x * .5 + .5) * window.innerWidth;
+                    const y2 = (screenPos.y * -.5 + .5) * window.innerHeight;
+                    issMarker.dom.style.left = `${x2}px`;
+                    issMarker.dom.style.top = `${y2}px`;
+                    issMarker.dom.classList.add('visible');
+                } else {
+                    issMarker.dom.classList.remove('visible');
+                }
             }
 
             for (let i = activeMissiles.length - 1; i >= 0; i--) {
                 const m = activeMissiles[i];
                 m.progress += m.speed;
                 if (m.progress >= 1) {
-                    createExplosion(m.targetPos, m.isSuper);
+                    createExplosion(m.targetPos, m.isSuper, m.victimLocation);
                     earthGroup.remove(m.mesh);
                     earthGroup.remove(m.trail);
                     activeMissiles.splice(i, 1);
@@ -625,10 +595,8 @@
                 e.age++;
                 const baseScale = 1 + (e.age / 10);
                 const scale = baseScale * e.multiplier;
-                
                 e.shockwave.scale.set(scale * 1.5, scale * 1.5, 1);
                 e.shockwave.material.opacity = (1 - (e.age / e.maxAge)) * 0.8;
-                
                 if (e.age >= e.maxAge) {
                     earthGroup.remove(e.shockwave);
                     activeExplosions.splice(i, 1);
@@ -640,7 +608,6 @@
                 m.age++;
                 const growSpeed = m.isSuper ? 80 : 40; 
                 const maxScale = m.isSuper ? 15.0 : 2.5; 
-                
                 if (m.age < growSpeed) {
                     const growth = Math.min(m.age / growSpeed, 1) * maxScale; 
                     m.group.scale.set(growth, growth, growth);
