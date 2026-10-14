@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>3D 地球儀 - 終極戰略版</title>
+    <title>3D 地球儀 - 高畫質終極戰略版</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000000; font-family: 'Segoe UI', sans-serif; }
         
@@ -11,32 +11,35 @@
         .label {
             position: absolute;
             color: #ffffff;
-            background: rgba(0, 15, 30, 0.7);
+            background: rgba(0, 15, 30, 0.6);
             padding: 4px 8px;
-            border-radius: 2px;
+            border-radius: 4px;
             font-size: 11px; 
             border-bottom: 1px solid #4db8ff;
             pointer-events: none;
             transform: translate(-50%, -20px);
             opacity: 0;
-            transition: opacity 0.3s;
+            transition: opacity 0.3s ease;
             white-space: nowrap;
             letter-spacing: 0.5px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.5);
             z-index: 10;
+            backdrop-filter: blur(4px);
         }
         .label.visible { opacity: 1; }
         .label strong { display: block; font-size: 1.1em; color: #4db8ff; margin-bottom: 2px; font-weight: 600; }
-        .label.iss { border-top: 2px solid #00ff00; border-bottom: none; background: rgba(0, 20, 0, 0.8); }
+        .label.iss { border-top: 2px solid #00ff00; border-bottom: none; background: rgba(0, 20, 0, 0.7); }
         .label.iss strong { color: #00ff00; }
         
         #loading {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             color: #4db8ff; font-family: 'Courier New', Courier, monospace;
-            background: rgba(0,20,40,0.9); padding: 10px 20px; border-radius: 4px;
+            background: rgba(0,20,40,0.9); padding: 15px 30px; border-radius: 8px;
             pointer-events: none; z-index: 20; border: 1px solid #4db8ff;
-            text-transform: uppercase; font-size: 12px; text-shadow: 0 0 5px #4db8ff;
+            text-transform: uppercase; font-size: 14px; text-shadow: 0 0 10px #4db8ff;
+            box-shadow: 0 0 20px rgba(77, 184, 255, 0.2);
+            transition: opacity 0.5s ease;
         }
 
         /* --- UI 容器 --- */
@@ -51,7 +54,7 @@
         }
 
         .control-btn {
-            background: rgba(10, 15, 20, 0.8);
+            background: rgba(10, 15, 20, 0.6);
             border: 1px solid #555;
             color: #aaa;
             padding: 12px 30px;
@@ -63,7 +66,7 @@
             transition: all 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 2px;
-            backdrop-filter: blur(5px);
+            backdrop-filter: blur(8px);
         }
 
         #peace-btn.active, #peace-btn:hover {
@@ -91,7 +94,7 @@
 <body>
     
     <div id="labels-container"></div>
-    <div id="loading">SYSTEM READY...</div>
+    <div id="loading">INITIALIZING HD TEXTURES...</div>
     
     <div id="ui-container">
         <button id="peace-btn" class="control-btn active">PEACE</button>
@@ -101,7 +104,6 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
         const CONFIG = { earthRadius: 5 };
 
@@ -117,6 +119,7 @@
         let isWarActive = false;
         let warInterval = null;
         let issMarker = null;
+        let sunLight;
 
         // --- 音效系統 ---
         let audioCtx;
@@ -138,7 +141,7 @@
             filter.frequency.value = 1000;
             filter.frequency.exponentialRampToValueAtTime(10, t + (isSuper ? 2.5 : 1.0));
             const gain = audioCtx.createGain();
-            const volume = isSuper ? 0.8 : 0.1;
+            const volume = isSuper ? 0.6 : 0.08;
             gain.gain.setValueAtTime(0, t);
             gain.gain.linearRampToValueAtTime(volume, t + 0.05);
             gain.gain.exponentialRampToValueAtTime(0.01, t + (isSuper ? 2.0 : 0.8));
@@ -185,33 +188,33 @@
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x000000);
+            
+            // 加入高畫質星空背景
+            scene.background = textureLoader.load('https://unpkg.com/three-globe/example/img/night-sky.png');
 
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 0, 16);
+            camera.position.set(0, 5, 18);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.0;
-            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            renderer.toneMappingExposure = 1.1;
             document.body.appendChild(renderer.domElement);
 
             earthGroup = new THREE.Group();
             scene.add(earthGroup);
 
-            const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.6);
-            scene.add(hemiLight);
+            // --- 燈光系統重建：使用真實太陽光 ---
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.05); // 極微弱的環境光，讓暗部不至於死黑
+            scene.add(ambientLight);
 
-            new RGBELoader().load('https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr', function(texture) {
-                texture.mapping = THREE.EquirectangularReflectionMapping;
-                scene.environment = texture;
-            });
+            sunLight = new THREE.DirectionalLight(0xffffff, 3.0);
+            sunLight.position.set(10, 3, 5); // 陽光從側面照射，製造漂亮日夜交界線
+            scene.add(sunLight);
 
-            createEarth();
+            createHighResEarth();
             createAurora();
-            createStars();
             createLandmarks(); 
             createISS(); 
             createRealisticUFO();
@@ -219,8 +222,8 @@
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.minDistance = 5.5; 
-            controls.maxDistance = 30;
+            controls.minDistance = 6.0; 
+            controls.maxDistance = 40;
             controls.rotateSpeed = 0.5;
 
             window.addEventListener('resize', onWindowResize);
@@ -244,32 +247,91 @@
                 fireBtn.classList.add('active');
                 peaceBtn.classList.remove('active');
                 
-                const targetPos = latLongToVector3(25, 120, 16);
+                const targetPos = latLongToVector3(25, 120, 18);
                 camera.position.lerp(targetPos, 0.8);
                 
                 startNuclearWar();
             });
 
+            // 貼圖較大，給予稍長的 Loading 提示時間
             setTimeout(() => {
                 const el = document.getElementById('loading');
-                if(el) el.style.opacity = 0;
-                setTimeout(() => { if(el) el.style.display = 'none'; }, 500);
-            }, 1000);
+                if(el) {
+                    el.style.opacity = 0;
+                    setTimeout(() => { el.style.display = 'none'; }, 500);
+                }
+            }, 2500);
+        }
+
+        function createHighResEarth() {
+            // 使用 Phong 材質，支援高光反射(海洋)與凹凸細節(山脈)
+            const geometry = new THREE.SphereGeometry(CONFIG.earthRadius, 128, 128);
+            const material = new THREE.MeshPhongMaterial({
+                map: textureLoader.load('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg'),
+                bumpMap: textureLoader.load('https://unpkg.com/three-globe/example/img/earth-topology.png'),
+                bumpScale: 0.03, // 凹凸程度
+                specularMap: textureLoader.load('https://unpkg.com/three-globe/example/img/earth-water.png'),
+                specular: new THREE.Color(0x333333), // 海洋反光顏色
+                shininess: 25 // 反光銳利度
+            });
+            earthMesh = new THREE.Mesh(geometry, material);
+            earthMesh.rotation.y = -Math.PI / 2;
+            earthGroup.add(earthMesh);
+
+            // 雲層升級
+            const cloudGeo = new THREE.SphereGeometry(CONFIG.earthRadius + 0.04, 128, 128);
+            const cloudMat = new THREE.MeshPhongMaterial({
+                map: textureLoader.load('https://unpkg.com/three-globe/example/img/earth-clouds.png'),
+                transparent: true, 
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
+            cloudMesh.rotation.y = -Math.PI / 2; 
+            earthGroup.add(cloudMesh);
+
+            // 大氣層發光效果 (微調參數，使其不突兀)
+            const atmosGeo = new THREE.SphereGeometry(CONFIG.earthRadius + 0.8, 64, 64);
+            const atmosMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    c: { type: "f", value: 0.5 }, 
+                    p: { type: "f", value: 5.0 },
+                    glowColor: { type: "c", value: new THREE.Color(0x1a53ff) }, 
+                    viewVector: { type: "v3", value: camera.position }
+                },
+                vertexShader: `
+                    uniform vec3 viewVector; varying float intensity;
+                    void main() {
+                        vec3 vNormal = normalize( normalMatrix * normal );
+                        vec3 vNormel = normalize( normalMatrix * viewVector );
+                        intensity = pow( 0.6 - dot(vNormal, vNormel), 5.0 ); 
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+                    } 
+                `,
+                fragmentShader: `
+                    uniform vec3 glowColor; varying float intensity;
+                    void main() { vec3 glow = glowColor * intensity; gl_FragColor = vec4( glow, 1.0 ); }
+                `,
+                side: THREE.BackSide, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false
+            });
+            scene.add(new THREE.Mesh(atmosGeo, atmosMat));
         }
 
         function createISS() {
             issGroup = new THREE.Group();
-            const coreGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8);
+            const coreGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8);
             coreGeo.rotateZ(Math.PI / 2);
             const coreMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.4, metalness: 0.8 });
             const core = new THREE.Mesh(coreGeo, coreMat);
             issGroup.add(core);
-            const panelGeo = new THREE.BoxGeometry(0.1, 0.01, 0.6);
-            const panelMat = new THREE.MeshStandardMaterial({ color: 0x3344cc, roughness: 0.2, metalness: 0.5 });
+            const panelGeo = new THREE.BoxGeometry(0.08, 0.01, 0.4);
+            const panelMat = new THREE.MeshStandardMaterial({ color: 0x2233aa, roughness: 0.2, metalness: 0.5 });
             const panelLeft = new THREE.Mesh(panelGeo, panelMat);
-            panelLeft.position.x = -0.3;
+            panelLeft.position.x = -0.2;
             const panelRight = new THREE.Mesh(panelGeo, panelMat);
-            panelRight.position.x = 0.3;
+            panelRight.position.x = 0.2;
             issGroup.add(panelLeft); issGroup.add(panelRight);
             earthGroup.add(issGroup);
             const div = document.createElement('div');
@@ -281,7 +343,7 @@
 
         function createRealisticUFO() {
             ufoGroup = new THREE.Group();
-            const scale = 4.0; 
+            const scale = 1.5; 
             const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.05*scale, 0.15*scale, 0.04*scale, 32), 
                 new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 1.0, roughness: 0.2 }));
             const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15*scale, 0.01*scale, 8, 32), 
@@ -292,6 +354,47 @@
             dome.position.y = 0.02*scale;
             ufoGroup.add(hull, ring, dome);
             scene.add(ufoGroup);
+        }
+
+        function createLandmarks() {
+            warTargets.forEach(data => {
+                const matGrey = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.03), matGrey);
+                
+                const pos = latLongToVector3(data.lat, data.lon, CONFIG.earthRadius);
+                mesh.position.copy(pos);
+                mesh.lookAt(0, 0, 0); 
+                earthGroup.add(mesh);
+                
+                const div = document.createElement('div');
+                div.className = 'label';
+                div.innerHTML = `<strong>${data.name}</strong>`;
+                document.getElementById('labels-container').appendChild(div);
+                markers.push({ mesh: mesh, dom: div });
+            });
+        }
+
+        function createAurora() {
+            auroraGroup = new THREE.Group();
+            const auroraGeo = new THREE.CylinderGeometry(CONFIG.earthRadius + 0.05, CONFIG.earthRadius + 0.3, 1.2, 64, 16, true);
+            auroraGeo.translate(0, CONFIG.earthRadius * 0.96, 0);
+            const vertexShader = `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+            const fragmentShader = `
+                uniform float time; uniform vec3 color; varying vec2 vUv;
+                float noise(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453); }
+                void main() {
+                    float n = noise(vec2(vUv.x * 10.0 + time * 0.2, vUv.y * 2.0));
+                    // 降低極光的 Alpha 透明度，避免遮擋畫面
+                    gl_FragColor = vec4(color, smoothstep(0.0, 0.3, vUv.y) * smoothstep(1.0, 0.5, vUv.y) * n * 0.4);
+                }
+            `;
+            const matNorth = new THREE.ShaderMaterial({ uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0x00ffcc) } }, vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
+            const matSouth = new THREE.ShaderMaterial({ uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0xaa55ff) } }, vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
+            const north = new THREE.Mesh(auroraGeo, matNorth);
+            const south = new THREE.Mesh(auroraGeo, matSouth);
+            south.rotation.x = Math.PI;
+            auroraGroup.add(north, south);
+            earthGroup.add(auroraGroup);
         }
 
         function startNuclearWar() {
@@ -339,49 +442,61 @@
         function launchMissile(startLocation, endLocation, isSuper = false) {
             const startPos = latLongToVector3(startLocation.lat, startLocation.lon, CONFIG.earthRadius);
             const endPos = latLongToVector3(endLocation.lat, endLocation.lon, CONFIG.earthRadius);
-            const heightBoost = isSuper ? 4.5 : 2.0 + Math.random() * 1.5;
+            
+            // 彈道高度修正，使其較貼地，更合理
+            const heightBoost = isSuper ? 1.5 : 0.5 + Math.random() * 0.8;
             const midPoint = startPos.clone().add(endPos).normalize().multiplyScalar(CONFIG.earthRadius + heightBoost);
             const curve = new THREE.QuadraticBezierCurve3(startPos, midPoint, endPos);
-            const points = curve.getPoints(50);
+            const points = curve.getPoints(40);
+            
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
             const material = new THREE.LineBasicMaterial({ 
                 color: isSuper ? 0xff3300 : 0xffaa00, 
-                transparent: true, opacity: isSuper ? 0.9 : 0.4, linewidth: isSuper ? 6 : 2
+                transparent: true, opacity: isSuper ? 0.9 : 0.6, linewidth: 2
             });
             const trajectory = new THREE.Line(geometry, material);
             earthGroup.add(trajectory);
-            const size = isSuper ? 0.15 : 0.04;
+            
+            // 導彈實體縮小
+            const size = isSuper ? 0.04 : 0.02;
             const missileGeo = new THREE.SphereGeometry(size, 8, 8);
             const missileMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
             const missile = new THREE.Mesh(missileGeo, missileMat);
+            
             if(isSuper) {
-                const glowMat = new THREE.MeshBasicMaterial({color: 0xff0000, transparent:true, opacity:0.6});
-                const glow = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), glowMat);
+                const glowMat = new THREE.MeshBasicMaterial({color: 0xff0000, transparent:true, opacity:0.8});
+                const glow = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), glowMat);
                 missile.add(glow);
             }
             earthGroup.add(missile);
+            
             activeMissiles.push({
                 mesh: missile, trail: trajectory, curve: curve, progress: 0,
-                speed: isSuper ? 0.002 : 0.003 + Math.random() * 0.002, 
+                speed: isSuper ? 0.006 : 0.008 + Math.random() * 0.005, 
                 targetPos: endPos, isSuper: isSuper, victimLocation: endLocation
             });
         }
 
         function createExplosion(position, isSuper = false, victimLocation) {
-            const multiplier = isSuper ? 8 : 1; 
+            // [重大修復] 縮小爆炸倍率，避免穿模遮擋畫面
+            const multiplier = isSuper ? 3.0 : 1.0; 
             playExplosionSound(isSuper);
-            const ringGeo = new THREE.RingGeometry(0.05 * multiplier, 0.1 * multiplier, 32);
+            
+            // 將爆炸基底半徑縮小到合理範圍 (0.02地球半徑)
+            const ringGeo = new THREE.RingGeometry(0.01 * multiplier, 0.03 * multiplier, 32);
             const ringMat = new THREE.MeshBasicMaterial({ 
-                color: isSuper ? 0xff2200 : 0xffaa00, transparent: true, opacity: 0.8, side: THREE.DoubleSide 
+                color: isSuper ? 0xff3300 : 0xffaa00, transparent: true, opacity: 0.9, side: THREE.DoubleSide 
             });
             const shockwave = new THREE.Mesh(ringGeo, ringMat);
             shockwave.position.copy(position);
             shockwave.lookAt(0,0,0);
             earthGroup.add(shockwave);
+            
             activeExplosions.push({
-                shockwave: shockwave, age: 0, maxAge: isSuper ? 200 : 100, multiplier: multiplier
+                shockwave: shockwave, age: 0, maxAge: isSuper ? 80 : 40, multiplier: multiplier
             });
-            setTimeout(() => createMushroomCloud(position, isSuper), 50);
+            
+            setTimeout(() => createMushroomCloud(position, isSuper), 20);
             if (victimLocation) triggerRetaliation(victimLocation);
         }
 
@@ -390,135 +505,30 @@
             group.position.copy(position);
             const up = position.clone().normalize();
             group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+            
             const material = new THREE.MeshStandardMaterial({
                 color: isSuper ? 0x222222 : 0x444444,
                 emissive: isSuper ? 0xdd0000 : 0xcc2200,
-                emissiveIntensity: isSuper ? 1.0 : 0.5,
+                emissiveIntensity: isSuper ? 1.0 : 0.6,
                 roughness: 1, flatShading: true
             });
-            const stemGeo = new THREE.CylinderGeometry(0.02, 0.01, 0.3, 8);
-            stemGeo.translate(0, 0.15, 0);
+            
+            // 縮小蘑菇雲基底模型
+            const stemGeo = new THREE.CylinderGeometry(0.01, 0.005, 0.15, 8);
+            stemGeo.translate(0, 0.075, 0);
             const stem = new THREE.Mesh(stemGeo, material);
-            const capGeo = new THREE.DodecahedronGeometry(0.15, 1);
-            capGeo.translate(0, 0.3, 0);
+            const capGeo = new THREE.DodecahedronGeometry(0.06, 1);
+            capGeo.translate(0, 0.15, 0);
             const cap = new THREE.Mesh(capGeo, material);
+            
             group.add(stem); group.add(cap);
             group.scale.set(0.1, 0.1, 0.1); 
             earthGroup.add(group);
+            
             activeMushrooms.push({
-                group: group, material: material, age: 0, maxAge: isSuper ? 1500 : 800, isSuper: isSuper
+                group: group, material: material, age: 0, 
+                maxAge: isSuper ? 300 : 150, isSuper: isSuper
             });
-        }
-
-        function createEarth() {
-            const geometry = new THREE.SphereGeometry(CONFIG.earthRadius, 128, 128);
-            const material = new THREE.MeshStandardMaterial({
-                map: textureLoader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg'),
-                normalMap: textureLoader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg'),
-                normalScale: new THREE.Vector2(0.8, 0.8),
-                roughness: 0.6, metalness: 0.05
-            });
-            earthMesh = new THREE.Mesh(geometry, material);
-            earthMesh.rotation.y = -Math.PI / 2;
-            earthGroup.add(earthMesh);
-            const cloudGeo = new THREE.SphereGeometry(CONFIG.earthRadius + 0.06, 128, 128);
-            const cloudMat = new THREE.MeshStandardMaterial({
-                map: textureLoader.load('https://threejs.org/examples/textures/planets/earth_clouds_1024.png'),
-                transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide
-            });
-            cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
-            cloudMesh.rotation.y = -Math.PI / 2; 
-            earthGroup.add(cloudMesh);
-            const atmosGeo = new THREE.SphereGeometry(CONFIG.earthRadius + 1.25, 64, 64);
-            const atmosMat = new THREE.ShaderMaterial({
-                uniforms: {
-                    c: { type: "f", value: 0.6 }, p: { type: "f", value: 4.0 },
-                    glowColor: { type: "c", value: new THREE.Color(0x2266cc) }, 
-                    viewVector: { type: "v3", value: camera.position }
-                },
-                vertexShader: `
-                    uniform vec3 viewVector; varying float intensity;
-                    void main() {
-                        vec3 vNormal = normalize( normalMatrix * normal );
-                        vec3 vNormel = normalize( normalMatrix * viewVector );
-                        intensity = pow( 0.65 - dot(vNormal, vNormel), 4.0 ); 
-                        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-                    } 
-                `,
-                fragmentShader: `
-                    uniform vec3 glowColor; varying float intensity;
-                    void main() { vec3 glow = glowColor * intensity; gl_FragColor = vec4( glow, 1.0 ); }
-                `,
-                side: THREE.BackSide, blending: THREE.AdditiveBlending, transparent: true
-            });
-            scene.add(new THREE.Mesh(atmosGeo, atmosMat));
-        }
-
-        function createLandmarks() {
-            warTargets.forEach(data => {
-                let mesh = null;
-                const matStone = new THREE.MeshStandardMaterial({ color: 0xeeddaa });
-                const matGrey = new THREE.MeshStandardMaterial({ color: 0xcccccc });
-                if (data.type === 'needle') mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.02, 0.3, 8), matStone);
-                else mesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.04), matGrey);
-                if (mesh) {
-                    const pos = latLongToVector3(data.lat, data.lon, CONFIG.earthRadius);
-                    mesh.position.copy(pos);
-                    mesh.lookAt(0, 0, 0); 
-                    const normal = pos.clone().normalize();
-                    const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-                    mesh.quaternion.copy(quaternion);
-                    mesh.rotateX(Math.PI / 2);
-                    if (data.type === 'needle') {
-                        mesh.rotateX(-Math.PI / 2); mesh.position.y += 0.15;
-                    }
-                    earthGroup.add(mesh);
-                    const div = document.createElement('div');
-                    div.className = 'label';
-                    div.innerHTML = `<strong>${data.name}</strong>`;
-                    document.getElementById('labels-container').appendChild(div);
-                    markers.push({ mesh: mesh, dom: div });
-                }
-            });
-        }
-
-        function createAurora() {
-            auroraGroup = new THREE.Group();
-            const auroraGeo = new THREE.CylinderGeometry(CONFIG.earthRadius + 0.1, CONFIG.earthRadius + 0.5, 1.8, 64, 16, true);
-            auroraGeo.translate(0, CONFIG.earthRadius * 0.95, 0);
-            const vertexShader = `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
-            const fragmentShader = `
-                uniform float time; uniform vec3 color; varying vec2 vUv;
-                float noise(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453); }
-                void main() {
-                    float n = noise(vec2(vUv.x * 15.0 + time * 0.3, vUv.y * 2.0));
-                    gl_FragColor = vec4(color, smoothstep(0.0, 0.4, vUv.y) * smoothstep(1.0, 0.4, vUv.y) * n * 0.8 + 0.1);
-                }
-            `;
-            const matNorth = new THREE.ShaderMaterial({ uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0x00ffcc) } }, vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
-            const matSouth = new THREE.ShaderMaterial({ uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0xaa55ff) } }, vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
-            const north = new THREE.Mesh(auroraGeo, matNorth);
-            const south = new THREE.Mesh(auroraGeo, matSouth);
-            south.rotation.x = Math.PI;
-            auroraGroup.add(north, south);
-            earthGroup.add(auroraGroup);
-        }
-
-        function createStars() {
-            const starGeo = new THREE.BufferGeometry();
-            const count = 3500;
-            const pos = new Float32Array(count * 3);
-            for(let i=0; i<count; i++) {
-                let r = 400 + Math.random() * 400;
-                let theta = Math.random() * Math.PI * 2;
-                let phi = Math.acos(2 * Math.random() - 1);
-                pos[i*3] = r * Math.sin(phi) * Math.cos(theta);
-                pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
-                pos[i*3+2] = r * Math.cos(phi);
-            }
-            starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-            const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.8, transparent: true, opacity: 0.8 });
-            scene.add(new THREE.Points(starGeo, starMat));
         }
 
         function latLongToVector3(lat, lon, radius) {
@@ -540,19 +550,26 @@
             requestAnimationFrame(animate);
             const time = clock.getElapsedTime();
 
-            earthGroup.rotation.y += 0.0003;
-            if (cloudMesh) cloudMesh.rotation.y = -Math.PI / 2 + time * 0.003;
+            // 讓地球自轉
+            earthGroup.rotation.y += 0.0005;
+            if (cloudMesh) cloudMesh.rotation.y = -Math.PI / 2 + time * 0.002;
             if (auroraGroup) auroraGroup.children.forEach(mesh => mesh.material.uniforms.time.value = time);
+            
+            // 陽光繞地球旋轉 (選用，可製造日夜交替)
+            if (sunLight) {
+                sunLight.position.x = Math.cos(time * 0.1) * 20;
+                sunLight.position.z = Math.sin(time * 0.1) * 20;
+            }
 
             if (ufoGroup) {
-                const r = CONFIG.earthRadius + 2.5; 
-                ufoGroup.position.set(Math.sin(time*0.5)*r, Math.cos(time*0.3)*2, Math.cos(time*0.5)*r);
+                const r = CONFIG.earthRadius + 1.5; 
+                ufoGroup.position.set(Math.sin(time*0.5)*r, Math.cos(time*0.3)*1.5, Math.cos(time*0.5)*r);
                 ufoGroup.lookAt(0,0,0);
             }
 
             if (issMarker) {
-                issMarker.orbitAngle += 0.001; 
-                const r = CONFIG.earthRadius + 1.0;
+                issMarker.orbitAngle += 0.0015; 
+                const r = CONFIG.earthRadius + 0.8;
                 const x = r * Math.cos(issMarker.orbitAngle) * 0.8;
                 const y = r * Math.sin(issMarker.orbitAngle) * 0.5; 
                 const z = r * Math.sin(issMarker.orbitAngle);
@@ -576,6 +593,7 @@
                 }
             }
 
+            // 更新飛彈
             for (let i = activeMissiles.length - 1; i >= 0; i--) {
                 const m = activeMissiles[i];
                 m.progress += m.speed;
@@ -590,40 +608,48 @@
                 }
             }
 
+            // 更新衝擊波 (縮小合理倍率)
             for (let i = activeExplosions.length - 1; i >= 0; i--) {
                 const e = activeExplosions[i];
                 e.age++;
-                const baseScale = 1 + (e.age / 10);
+                // 緩慢放大，並限制最大規模
+                const baseScale = 1 + (e.age / 5);
                 const scale = baseScale * e.multiplier;
-                e.shockwave.scale.set(scale * 1.5, scale * 1.5, 1);
+                e.shockwave.scale.set(scale, scale, 1);
                 e.shockwave.material.opacity = (1 - (e.age / e.maxAge)) * 0.8;
+                
                 if (e.age >= e.maxAge) {
                     earthGroup.remove(e.shockwave);
                     activeExplosions.splice(i, 1);
                 }
             }
 
+            // 更新蘑菇雲 (修正膨脹係數)
             for (let i = activeMushrooms.length - 1; i >= 0; i--) {
                 const m = activeMushrooms[i];
                 m.age++;
-                const growSpeed = m.isSuper ? 80 : 40; 
-                const maxScale = m.isSuper ? 15.0 : 2.5; 
+                const growSpeed = m.isSuper ? 40 : 20; 
+                const maxScale = m.isSuper ? 3.0 : 1.2; // [重大修復] 從 15.0 降至 3.0，避免穿模
+                
                 if (m.age < growSpeed) {
                     const growth = Math.min(m.age / growSpeed, 1) * maxScale; 
                     m.group.scale.set(growth, growth, growth);
                 }
+                
                 if (m.age > growSpeed) {
-                    m.material.emissiveIntensity = Math.max(0, (m.isSuper ? 1.0 : 0.5) - (m.age - growSpeed) * 0.005);
+                    m.material.emissiveIntensity = Math.max(0, (m.isSuper ? 1.0 : 0.6) - (m.age - growSpeed) * 0.01);
                 }
+                
                 if (m.age >= m.maxAge) {
-                    m.group.scale.multiplyScalar(0.99); 
-                    if (m.group.scale.x < 0.1) {
+                    m.group.scale.multiplyScalar(0.98); 
+                    if (m.group.scale.x < 0.05) {
                         earthGroup.remove(m.group);
                         activeMushrooms.splice(i, 1);
                     }
                 }
             }
 
+            // 更新地標 UI 顯示
             markers.forEach(marker => {
                 const worldPos = new THREE.Vector3();
                 marker.mesh.getWorldPosition(worldPos);
@@ -646,5 +672,3 @@
     </script>
 </body>
 </html>
-
-
